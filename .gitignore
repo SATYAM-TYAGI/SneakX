@@ -1,0 +1,34 @@
+# Node dependencies
+node_modules/
+
+# Python caching & logs
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+logs/
+*.log
+
+# Editor configurations
+.vscode/
+.idea/
+
+# Environment variables
+.env
+.env.*
+
+# Build outputs
+dist/
+build/
+coverage/
+.cache/
+
+# OS specific files
+Thumbs.db
+.DS_Store
+
+# Explicitly ensure backend data is NOT ignored
+!backend/data/
+
+# Local development folder containing data pre-processing scripts
+dev/
