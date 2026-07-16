@@ -20,14 +20,14 @@ Under the search bar, there are filters you can use to narrow down your search:
 * **Material**: Filter by material (like Leather or Canvas).
 * **Color**: Choose a specific colorway (like Black, White, or Red).
 
-After setting your search text and filters, click the **Find Sneakers** button. The top 5 recommendations will appear below.
+After setting your search text and filters, click the **Find Sneakers** button. The top 10 recommendations will appear below.
 
 ---
 
 ## 3. How the Recommendations Work
-* The app calculates similarity scores between your search and the shoes in the database.
-* It adds bonus points for matching your filters.
-* It uses a diversity filter to make sure you do not get 5 variations of the same shoe or brand.
+* **Query Parser**: Extracts Brand, Type, Gender, and Primary Color from your query.
+* **Search Strategies**: If you search by traits only (e.g. *"Nike Running Shoes Black"*), it runs a structured search. If you search using general descriptions (e.g. *"comfortable"*), it performs semantic search on the filtered subset (hybrid) or the entire dataset.
+* **Fallback Logic**: If there are fewer than 10 matches, the app automatically finds similar shoes to the top recommendation and appends them until 10 products are returned.
 
 ---
 
@@ -44,8 +44,7 @@ After setting your search text and filters, click the **Find Sneakers** button. 
 ## 5. How Similar Products Work
 At the bottom of the details page, you will see a section called **Check Out Similar Sneakers**.
 * I built this to show 20 shoes that look or perform like the one you are viewing.
-* It only shows shoes matching the same gender as the open shoe.
-* It uses diversity filtering so you do not see the same models repeated.
+* It uses Brand, Type, Gender, Material, Colors, and vector embeddings (Identity & Description) to calculate a unified similarity score.
 * If you click on any of these similar shoes, the page will update instantly to show that shoe's details.
 
 ---

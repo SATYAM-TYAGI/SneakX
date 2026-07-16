@@ -65,22 +65,8 @@ function Filters({ filters, setFilters, filterOptions, loading }) {
           <option value="">All</option>
           <option value="men">Men</option>
           <option value="women">Women</option>
-        </select>
-      </div>
-
-      {/* Material Selector */}
-      <div className="filter-group">
-        <label className="filter-label">Material</label>
-        <select
-          className="filter-select"
-          value={filters.material}
-          onChange={(e) => handleFilterChange('material', e.target.value)}
-          disabled={loading}
-        >
-          <option value="">All Materials</option>
-          {materials.map(material => (
-            <option key={material} value={material}>{material}</option>
-          ))}
+          <option value="unisex">Unisex</option>
+          <option value="kids">Kids</option>
         </select>
       </div>
 

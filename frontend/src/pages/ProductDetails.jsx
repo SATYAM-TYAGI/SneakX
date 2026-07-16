@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useParams, useLocation, useNavigate, Link } from 'react-router-dom'
 import SimilarProducts from '../components/SimilarProducts.jsx'
+import { getSimilarProducts } from '../services/api.js'
 
 /**
  * Dedicated Product Details page rendering detailed metrics of the selected sneaker
@@ -15,12 +16,32 @@ function ProductDetails() {
   const state = location.state || {}
   const currentProduct = state.product
   const recommendations = state.recommendations || []
-  const similarProducts = state.similarProducts || state.similar_products || []
+
+  // local state to store similar products for the selected sneaker
+  const [similarShoes, setSimilarShoes] = useState([])
+  const [loadingSimilar, setLoadingSimilar] = useState(false)
 
   // scroll to top when active product changes
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [id])
+
+  // fetch similar products dynamically from the backend API when the shoe ID changes
+  useEffect(() => {
+    if (currentProduct) {
+      setLoadingSimilar(true)
+      getSimilarProducts(currentProduct.product_id)
+        .then((data) => {
+          setSimilarShoes(data.similar_products || [])
+        })
+        .catch((err) => {
+          console.error("Failed to load similar products:", err)
+        })
+        .finally(() => {
+          setLoadingSimilar(false)
+        })
+    }
+  }, [currentProduct?.product_id])
 
   // if the route was accessed directly, state is missing, so we guide them back
   if (!currentProduct) {
@@ -37,7 +58,7 @@ function ProductDetails() {
   const mainImage = currentProduct.thumbnail_url
 
   // filter out the current product from similar shoes grid
-  const otherSimilarProducts = similarProducts.filter(
+  const otherSimilarProducts = similarShoes.filter(
     (shoe) => shoe.product_id !== currentProduct.product_id
   )
 
@@ -46,8 +67,7 @@ function ProductDetails() {
     navigate(`/product/${similarProduct.product_id}`, {
       state: {
         product: similarProduct,
-        recommendations,
-        similarProducts
+        recommendations
       }
     })
   }
@@ -55,7 +75,7 @@ function ProductDetails() {
   return (
     <div className="product-details-container">
       <div className="back-link-wrapper">
-        <Link to="/" state={{ recommendations, similarProducts }} className="back-to-search-btn">
+        <Link to="/" state={{ recommendations, similarProducts: similarShoes }} className="back-to-search-btn">
           ← Back to Search
         </Link>
       </div>

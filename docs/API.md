@@ -11,7 +11,7 @@ When you run the app using Docker, the backend runs here:
 ## Endpoints
 
 ### 1. Get Recommendations and Similar Shoes
-I made this endpoint to handle the search. You can send a text search query, dropdown filter selections, or both. It returns the top 5 recommended shoes and 20 similar shoes in one response.
+I made this endpoint to handle the search. You can send a search query, dropdown filter selections, or both. It returns the top 10 recommended shoes and 20 similar shoes in one response.
 
 * **URL:** `/api/recommend`
 * **Method:** `POST`
@@ -29,7 +29,6 @@ I made this endpoint to handle the search. You can send a text search query, dro
     }
   }
   ```
-  *(Note: You do not have to send every field. If you do not want to filter by something, just pass `null` or leave the query blank.)*
 
 * **Response Body Example:**
   ```json
@@ -44,12 +43,12 @@ I made this endpoint to handle the search. You can send a text search query, dro
         "type": "Running",
         "gender": "men",
         "material": "Primeknit",
-        "color": "White",
-        "retail_price": "180.00",
+        "color": "Triple White",
+        "retail_price": "180",
         "thumbnail_url": "https://...",
-        "image1_url": "https://...",
-        "image2_url": "https://...",
-        "image3_url": "https://...",
+        "image1_url": "",
+        "image2_url": "",
+        "image3_url": "",
         "stockx_url": "https://..."
       }
     ],
@@ -64,11 +63,11 @@ I made this endpoint to handle the search. You can send a text search query, dro
         "gender": "men",
         "material": "Mesh",
         "color": "Black/White",
-        "retail_price": "120.00",
+        "retail_price": "120",
         "thumbnail_url": "https://...",
-        "image1_url": "https://...",
-        "image2_url": "https://...",
-        "image3_url": "https://...",
+        "image1_url": "",
+        "image2_url": "",
+        "image3_url": "",
         "stockx_url": "https://..."
       }
     ]
@@ -89,5 +88,37 @@ I created this endpoint so the frontend dropdowns do not have to be hardcoded. I
     "types": ["Basketball", "Running", "Casual"],
     "materials": ["Leather", "Mesh", "Suede"],
     "colors": ["Black", "White", "Red"]
+  }
+  ```
+
+---
+
+### 3. Get Similar Products
+I created this endpoint so the details page can dynamically load visually and functionally similar shoes for the sneaker currently being viewed.
+
+* **URL:** `/api/similar/{product_id}`
+* **Method:** `GET`
+* **Response Body Example:**
+  ```json
+  {
+    "similar_products": [
+      {
+        "product_id": "P0015",
+        "brand": "Nike",
+        "model": "Nike Pegasus 38",
+        "display_name": "Nike Pegasus 38 Flyease Black White",
+        "description": "Good for daily running...",
+        "type": "Running",
+        "gender": "men",
+        "material": "Mesh",
+        "color": "Black/White",
+        "retail_price": "$120",
+        "thumbnail_url": "https://...",
+        "image1_url": "",
+        "image2_url": "",
+        "image3_url": "",
+        "stockx_url": "https://..."
+      }
+    ]
   }
   ```

@@ -24,25 +24,25 @@ I built SneakX using semantic embeddings. It understands what you mean, matching
 I chose these technologies for this project:
 * **Frontend**: React, React Router v6, and Vanilla CSS.
 * **Backend**: FastAPI (Python), Uvicorn.
-* **Machine Learning**: Sentence-Transformers (`all-MiniLM-L6-v2`), Scikit-Learn (`TfidfVectorizer`).
+* **Machine Learning**: Sentence-Transformers (`all-MiniLM-L6-v2`), rank-bm25 (`BM25Okapi`).
 * **Data Processing**: Pandas (Parquet format), NumPy.
 * **Containers**: Docker, Docker Compose.
 
 ---
 
 ## Recommendation Pipeline
-I built a 5-stage pipeline to select and rank recommendations:
-1. **Filtering**: Applies hard filters (selected Brand and Type). If results are empty, it automatically falls back to search the whole database.
-2. **Similarity Math**: it Computes semantic embedding cosine similarity and TF-IDF keyword overlap.
-3. **Re-ranking**: Adds bonus points for matching attributes.
-4. **Diversity Check**: Skips duplicate model families and applies a brand count penalty.
-5. **Similar Products**: Finds similar shoes matching the target shoe's gender.
+I built a simplified and deterministic recommendation pipeline based on three search strategies. We replaced TF-IDF keyword overlap with BM25 lexical ranking: BM25 provides better keyword-based ranking by considering both keyword importance and document length, making it a stronger lexical retrieval method.
+1. **Strategy 1: Structured Search**: Triggered when the semantic search query is empty. It applies hard filters (Brand, Type, Gender, Primary Color) and returns results directly without semantic vector similarity calculations or lexical searches.
+2. **Strategy 2: Hybrid Search**: Triggered when structured filters are selected and a semantic search text remains. It applies hard filters first, then calculates semantic similarity (combining 70% Description embeddings and 30% BM25 ranking) only on the filtered subset.
+3. **Strategy 3: Pure Semantic Search**: Triggered when no structured filters are detected. It performs hybrid BM25 and Description embedding search across the entire dataset using the same weights.
+4. **Fallback Logic**: If fewer than 10 products are found, it takes the highest-ranked candidate, extracts its traits (Brand, Type, Gender, Material, Primary Color, Secondary Color), queries similar shoes, and fills the remaining slots up to 10 products.
+5. **Similar Products (Top 20)**: Recommends visually and structurally similar shoes using Brand, Type, Gender, Material, Primary Color, Secondary Color, and both Identity and Description embeddings.
 
 ---
 
 ## Project Structure
 Here is how the files are structured:
-* `backend/data/` - Holds all the dataset CSV, Parquet, embeddings, and TF-IDF data.
+* `backend/data/` - Holds all the dataset CSV, Parquet, embeddings, and BM25 index.
 * `backend/engine/` - Holds files for core recommendation algorithms and vector math.
 * `backend/main.py` - Handles API routing.
 * `frontend/src/components/` - Smaller reusable UI cards, search bars, and spinner.
@@ -56,7 +56,7 @@ Here is how the files are structured:
 
 1. **Clone this repository**:
    ```bash
-   git clone https://github.com/SATYAM-TYAGI/SneaksHub.git
+   git clone https://github.com/SATYAM-TYAGI/SneakX.git
    cd SneakX
    ```
 

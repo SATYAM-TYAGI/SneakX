@@ -43,10 +43,10 @@ graph TD
 
 ### 2. Backend (FastAPI)
 * I used FastAPI to run the backend web server.
-* On startup, it loads the dataset parquet file and the pre-computed embeddings into memory.
-* It exposes the `/api/recommend` and `/api/filters` endpoints for the frontend.
+* On startup, it loads the dataset parquet file and pre-computed embeddings (Identity and Description vectors only) into memory.
+* It exposes the `/api/recommend`, `/api/filters`, and `/api/similar/{product_id}` endpoints for the frontend.
 
 ### 3. Recommendation Math (`backend/engine/`)
-* **`recommendation_engine.py`**: Contains the code for sorting the database, applying filter rules, adding bonus points, and keeping recommendations diverse.
+* **`recommendation_engine.py`**: Contains the code for hard filtering, Description + BM25 hybrid semantic searches, and trait-based Similar Products comparisons.
 * **`semantic_search.py`**: Interacts with the Sentence Transformer model to calculate text embedding vectors.
-* **`backend/data/`**: Stores all the pre-cached dataset files, embeddings, and TF-IDF matrices in NumPy and pickle formats.
+* **`backend/data/`**: Stores the processed Parquet dataset, Identity & Description embeddings, and the BM25 index.

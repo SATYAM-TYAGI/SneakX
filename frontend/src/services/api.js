@@ -41,3 +41,14 @@ export async function getRecommendations(query, filters) {
 
   return response.json()
 }
+
+/**
+ * Fetch similar products dynamically for a sneaker by its product ID.
+ */
+export async function getSimilarProducts(productId) {
+  const response = await fetch(`/api/similar/${productId}`)
+  if (!response.ok) {
+    throw new Error("Could not fetch similar products for sneaker")
+  }
+  return response.json()
+}

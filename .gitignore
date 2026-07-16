@@ -27,8 +27,13 @@ coverage/
 Thumbs.db
 .DS_Store
 
-# Explicitly ensure backend data is NOT ignored
+# Explicitly ensure backend data and processed models are tracked in git for plug-and-play
 !backend/data/
+
+# Local virtual environments
+.venv/
+venv/
+ENV/
 
 # Local development folder containing data pre-processing scripts
 dev/

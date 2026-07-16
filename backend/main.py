@@ -9,14 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
-# import internal recommendation engine and embedding modules
+# Import internal recommendation engine and embedding modules
 from engine import recommendation_engine
 from engine import semantic_search as embedding
 
-# initialize the fastapi application
+# Initialize the FastAPI application
 app = FastAPI(title="SneakX API", description="AI-powered sneaker recommendation engine")
 
-# add CORS middleware so React frontend can call it
+# Add CORS middleware so React frontend can call it
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,13 +25,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# global variables to store the data in memory
+# Global variables to store the data in memory
 df_sneakers = None
 embeddings_identity = None
 embeddings_description = None
-embeddings_combined = None
-tfidf_vectorizer = None
-tfidf_matrix = None
+bm25_index = None
+
+# Global dynamic lists for query parsing
+UNIQUE_BRANDS = []
+UNIQUE_COLORS = []
 
 class FilterOptions(BaseModel):
     brand: Optional[str] = None
@@ -44,103 +46,113 @@ class RecommendationRequest(BaseModel):
     query: Optional[str] = ""
     filters: Optional[FilterOptions] = None
 
-def clean_text_for_tfidf(text: str) -> str:
-    """
-    Clean query text prior to TF-IDF transformations.
-    """
-    if not isinstance(text, str):
-        return ""
-    text = text.lower()
-    # remove html tags
-    text = re.sub(r'<[^>]+>', ' ', text)
-    # remove punctuation
-    text = re.sub(r'[^\w\s]', ' ', text)
-    # collapse multiple spaces
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
 
-def parse_filters_from_query(query: str, filter_options: dict) -> dict:
+
+def parse_query(query: str, unique_brands, unique_colors) -> tuple:
     """
-    Smart Query Understanding: Parse filters brand, type, material, color, and gender directly from search query.
-    Colors are matched exactly using individual tokens to prevent incorrect matches.
+    Simple query parser that extracts Brand, Type, Gender, and Primary Color.
+    Removes those matching words and noise words, returning (parsed_filters, semantic_query).
     """
-    inferred = {}
     if not query:
-        return inferred
-        
-    cleaned = re.sub(r'[^\w\s]', ' ', query.lower())
+        return {}, ""
+
+    cleaned = query.lower().strip()
+    # Replace punctuation with spaces
+    cleaned = re.sub(r'[^\w\s]', ' ', cleaned)
     words = cleaned.split()
-    
-    brands = [b.lower() for b in filter_options.get("brands", [])]
-    types = [t.lower() for t in filter_options.get("types", [])]
-    materials = [m.lower() for m in filter_options.get("materials", [])]
-    
-    # map colors list tokens
-    db_colors = filter_options.get("colors", [])
-    colors = set()
-    for col in db_colors:
-        if pd.notnull(col):
-            for part in re.split(r'[/ -]', str(col).lower()):
-                if part.strip():
-                    colors.add(part.strip())
-                    
-    # explicit check for multi-word brand: New Balance
-    if "new balance" in cleaned:
-        inferred["brand"] = "New Balance"
-        
-    for word in words:
-        if word in brands and "brand" not in inferred:
-            idx = brands.index(word)
-            inferred["brand"] = filter_options["brands"][idx]
-            
-        if word in types and "type" not in inferred:
-            idx = types.index(word)
-            inferred["type"] = filter_options["types"][idx]
-            
-        if word in materials and "material" not in inferred:
-            idx = materials.index(word)
-            inferred["material"] = filter_options["materials"][idx]
-            
-        if word in colors and "color" not in inferred:
-            # verify exact token match in DB colors
-            for col in db_colors:
-                if pd.notnull(col):
-                    tokens = [t.strip().lower() for t in re.split(r'[/ -]', str(col))]
-                    if word in tokens:
-                        inferred["color"] = col
-                        break
-                        
-        # check genders
-        if word in ["men", "man", "male"]:
-            inferred["gender"] = "men"
-        elif word in ["women", "woman", "female"]:
-            inferred["gender"] = "women"
-        elif word in ["unisex"]:
-            inferred["gender"] = "unisex"
-        elif word in ["kids", "kid", "child"]:
-            inferred["gender"] = "kids"
-            
-    return inferred
+
+    inferred = {}
+    words_to_remove = set()
+
+    # 1. Check Brand (longest first to avoid partial matching)
+    for b in sorted(unique_brands, key=len, reverse=True):
+        b_lower = b.lower()
+        if b_lower in cleaned:
+            # Word boundary check to avoid partial word match (e.g. "On" in "One")
+            if re.search(r'\b' + re.escape(b_lower) + r'\b', cleaned):
+                inferred["brand"] = b
+                for w in b_lower.split():
+                    words_to_remove.add(w)
+                break
+
+    # 2. Check Gender
+    gender_syns = {
+        "men": ["men", "man", "male"],
+        "women": ["women", "woman", "female"],
+        "kids": ["kids", "kid", "child", "children"],
+        "unisex": ["unisex"]
+    }
+    for g_val, syns in gender_syns.items():
+        for syn in syns:
+            if syn in words:
+                inferred["gender"] = g_val
+                words_to_remove.add(syn)
+                break
+        if "gender" in inferred:
+            break
+
+    # 3. Check Type
+    type_syns = {
+        "running": ["running", "runner", "runners"],
+        "basketball": ["basketball"],
+        "skate": ["skate", "skating", "skater"],
+        "lifestyle": ["lifestyle"],
+        "slides": ["slides", "slide"],
+        "training": ["training", "trainer", "trainers"],
+        "soccer": ["soccer"],
+        "casual": ["casual"],
+        "trail": ["trail"],
+        "walking": ["walking"]
+    }
+    for t_val, syns in type_syns.items():
+        for syn in syns:
+            if syn in words:
+                inferred["type"] = t_val
+                words_to_remove.add(syn)
+                # Helper words for type
+                words_to_remove.add("shoes")
+                words_to_remove.add("shoe")
+                break
+        if "type" in inferred:
+            break
+
+    # 4. Check Primary Color
+    for c in unique_colors:
+        c_lower = c.lower()
+        if c_lower in words:
+            inferred["primary_color"] = c
+            words_to_remove.add(c_lower)
+            break
+
+    # If any structured filter was found, we also remove noise/helper words
+    if inferred:
+        noise_words = {"for", "in", "color", "shoes", "shoe"}
+        for nw in noise_words:
+            if nw in words:
+                words_to_remove.add(nw)
+
+    # Reconstruct remaining semantic query
+    semantic_words = [w for w in query.split() if w.lower().strip(",.?!()-\"'/") not in words_to_remove]
+    semantic_query = " ".join(semantic_words).strip()
+
+    return inferred, semantic_query
 
 @app.on_event("startup")
 def startup_event():
     """
-    Load dataset, multiple embeddings, and TF-IDF matrix into memory when FastAPI starts.
-    If any file is missing, crash the startup immediately.
+    Load dataset, double embeddings, and BM25 index into memory when FastAPI starts.
     """
-    global df_sneakers, embeddings_identity, embeddings_description, embeddings_combined, tfidf_vectorizer, tfidf_matrix
+    global df_sneakers, embeddings_identity, embeddings_description, bm25_index, UNIQUE_BRANDS, UNIQUE_COLORS
 
     data_dir = "data"
     parquet_path = os.path.join(data_dir, "processed_dataset.parquet")
     emb_id_path = os.path.join(data_dir, "embeddings_identity.npy")
     emb_desc_path = os.path.join(data_dir, "embeddings_description.npy")
-    emb_comb_path = os.path.join(data_dir, "embeddings_combined.npy")
-    tfidf_vec_path = os.path.join(data_dir, "tfidf_vectorizer.pkl")
-    tfidf_mat_path = os.path.join(data_dir, "tfidf_matrix.pkl")
+    bm25_path = os.path.join(data_dir, "bm25_index.pkl")
 
-    # validation checks
+    # Validation checks
     missing_files = []
-    for p in [parquet_path, emb_id_path, emb_desc_path, emb_comb_path, tfidf_vec_path, tfidf_mat_path]:
+    for p in [parquet_path, emb_id_path, emb_desc_path, bm25_path]:
         if not os.path.exists(p):
             missing_files.append(p)
 
@@ -155,31 +167,31 @@ def startup_event():
         print(error_msg)
         sys.exit(1)
 
-    # load DataFrame
+    # Load DataFrame
     df_sneakers = pd.read_parquet(parquet_path)
     print(f"Successfully loaded {len(df_sneakers)} sneakers from Parquet.")
 
-    # load three numpy embedding matrices
+    # Load two numpy embedding matrices
     embeddings_identity = np.load(emb_id_path)
     embeddings_description = np.load(emb_desc_path)
-    embeddings_combined = np.load(emb_comb_path)
-    print("Successfully loaded three-way sneaker embeddings.")
+    print("Successfully loaded identity and description sneaker embeddings.")
 
-    # load TF-IDF assets
-    with open(tfidf_vec_path, "rb") as f:
-        tfidf_vectorizer = pickle.load(f)
-    with open(tfidf_mat_path, "rb") as f:
-        tfidf_matrix = pickle.load(f)
-    print("Successfully loaded TF-IDF vectorizer and document matrices.")
+    # Load BM25 index
+    with open(bm25_path, "rb") as f:
+        bm25_index = pickle.load(f)
+    print("Successfully loaded BM25 index.")
 
-    # warm up Sentence Transformer
+    # Populate unique lists for query parser
+    UNIQUE_BRANDS = sorted(df_sneakers["Brand"].dropna().unique().tolist())
+    UNIQUE_COLORS = sorted(df_sneakers["Primary Color"].dropna().unique().tolist())
+
+    # Warm up Sentence Transformer
     embedding.get_sentence_transformer_model()
     print("Sentence Transformer model loaded successfully and ready.")
 
 def format_sneaker_payload(df: pd.DataFrame) -> List[Dict[str, Any]]:
     """
-    Convert sneaker rows in DataFrame to simple dict payloads.
-    Exclude raw embeddings, similarity scores, or intermediate ranking metrics.
+    Convert sneaker rows in DataFrame to simple dict payloads for the frontend.
     """
     payload = []
     for _, row in df.iterrows():
@@ -192,13 +204,13 @@ def format_sneaker_payload(df: pd.DataFrame) -> List[Dict[str, Any]]:
             "type": str(row["Type"]),
             "gender": str(row["Gender"]),
             "material": str(row["Material"]),
-            "color": str(row["Color"]) if pd.notnull(row["Color"]) else "Unknown",
-            "retail_price": str(row["Retail Price"]).strip(),
+            "color": str(row["Colorway"]) if pd.notnull(row["Colorway"]) else "Unknown",
+            "retail_price": f"${str(row['Retail Price']).strip()}" if not str(row['Retail Price']).strip().startswith("$") else str(row['Retail Price']).strip(),
             "thumbnail_url": str(row["Thumbnail URL"]),
-            "image1_url": str(row["Image 1 URL"]) if pd.notnull(row["Image 1 URL"]) else "",
-            "image2_url": str(row["Image 2 URL"]) if pd.notnull(row["Image 2 URL"]) else "",
-            "image3_url": str(row["Image 3 URL"]) if pd.notnull(row["Image 3 URL"]) else "",
-            "stockx_url": str(row["StockX Link"])
+            "image1_url": "",
+            "image2_url": "",
+            "image3_url": "",
+            "stockx_url": str(row["StockX Link"]) if pd.notnull(row["StockX Link"]) else ""
         })
     return payload
 
@@ -212,13 +224,12 @@ def read_root():
 @app.post("/api/recommend")
 def get_recommendations(request: RecommendationRequest):
     """
-    Process search filters, semantic query, and metadata re-ranking.
-    Returns the Top 5 recommendations and Top 20 similar products in a single response.
+    Process search filters, extract query properties, apply hard filters and run semantic strategy.
+    Returns the Top 10 recommendations and Top 20 similar products.
     """
-    if df_sneakers is None or embeddings_identity is None or tfidf_matrix is None:
+    if df_sneakers is None or embeddings_identity is None or embeddings_description is None:
         raise HTTPException(status_code=500, detail="Recommendation engine artifacts not loaded.")
 
-    # extract query and filters from request
     search_query = request.query.strip() if request.query else ""
     user_filters = {}
     if request.filters:
@@ -226,155 +237,103 @@ def get_recommendations(request: RecommendationRequest):
             "brand": request.filters.brand,
             "type": request.filters.type,
             "gender": request.filters.gender,
-            "material": request.filters.material,
-            "color": request.filters.color
+            "color": request.filters.color,
+            "material": request.filters.material
         }
 
-    # Smart Query Understanding
-    filter_metadata = {
-        "brands": sorted(df_sneakers["Brand"].dropna().unique().tolist()),
-        "types": sorted(df_sneakers["Type"].dropna().unique().tolist()),
-        "materials": sorted(df_sneakers["Material"].dropna().unique().tolist()),
-        "colors": sorted(df_sneakers["Color"].dropna().unique().tolist())
-    }
-    inferred_filters = parse_filters_from_query(search_query, filter_metadata)
+    # Extract structured filters from user query
+    inferred_filters, semantic_query = parse_query(search_query, UNIQUE_BRANDS, UNIQUE_COLORS)
 
-    # merge inferred filters with user selected filters (dropdown selections prioritize)
+    # Merge inferred filters with user selected filters (dropdown selections prioritize)
     merged_brand = user_filters.get("brand") or inferred_filters.get("brand")
     merged_type = user_filters.get("type") or inferred_filters.get("type")
-    
-    hard_gender = user_filters.get("gender")
-    hard_material = user_filters.get("material")
-    hard_color = user_filters.get("color")
+    merged_gender = user_filters.get("gender") or inferred_filters.get("gender")
+    merged_color = user_filters.get("color") or inferred_filters.get("primary_color")
+    merged_material = user_filters.get("material")
 
-    # preferences filters for Stage 3 re-ranking
-    filters_for_search = {
-        "brand": merged_brand,
-        "type": merged_type,
-        "gender": user_filters.get("gender") or inferred_filters.get("gender"),
-        "material": user_filters.get("material") or inferred_filters.get("material"),
-        "color": user_filters.get("color") or inferred_filters.get("color")
-    }
+    has_structured_filters = any([merged_brand, merged_type, merged_gender, merged_color, merged_material])
 
-    # STAGE 1: Optional Filtering (Hard filters only)
+    # STAGE 1: Always apply structured filters first as hard filters
     filtered_df, filtered_indices = recommendation_engine.filter_dataset(
         df_sneakers,
         brand=merged_brand,
         shoe_type=merged_type,
-        gender=hard_gender,
-        material=hard_material,
-        color=hard_color
+        gender=merged_gender,
+        primary_color=merged_color,
+        material=merged_material
     )
 
-    # STAGE 2: Semantic Similarity Search
-    if search_query:
-        query_text = search_query
+    if not semantic_query:
+        # STRATEGY 1: Structured Search
+        final_recommendations = filtered_df.head(10).copy()
     else:
-        query_text = embedding.build_search_sentence(
-            brand=merged_brand,
-            shoe_type=merged_type,
-            gender=filters_for_search.get("gender"),
-            material=filters_for_search.get("material"),
-            color=filters_for_search.get("color")
-        )
+        # Compute query vector
+        query_vector = embedding.compute_embedding(semantic_query)
 
-    # generate clean TF-IDF query text and embed query vector
-    cleaned_query = clean_text_for_tfidf(query_text)
-    query_vector = embedding.compute_embedding(query_text)
-    query_tfidf = tfidf_vectorizer.transform([cleaned_query])
+        if has_structured_filters:
+            # STRATEGY 2: Hybrid Search
+            final_recommendations = recommendation_engine.search_semantic(
+                query_embedding=query_vector,
+                semantic_query=semantic_query,
+                embeddings_description=embeddings_description,
+                bm25_index=bm25_index,
+                df=df_sneakers,
+                filtered_indices=filtered_indices
+            ).head(10)
+        else:
+            # STRATEGY 3: Pure Semantic Search
+            all_indices = list(range(len(df_sneakers)))
+            final_recommendations = recommendation_engine.search_semantic(
+                query_embedding=query_vector,
+                semantic_query=semantic_query,
+                embeddings_description=embeddings_description,
+                bm25_index=bm25_index,
+                df=df_sneakers,
+                filtered_indices=all_indices
+            ).head(10)
 
-    # extract Top 100 candidate matches from the filtered subset
-    top_100_df, top_100_semantic_scores, top_100_tfidf_scores = recommendation_engine.search_semantic(
-        query_embedding=query_vector,
-        query_tfidf=query_tfidf,
-        embeddings_identity=embeddings_identity,
-        embeddings_description=embeddings_description,
-        embeddings_combined=embeddings_combined,
-        tfidf_matrix=tfidf_matrix,
-        df=filtered_df,
-        filtered_indices=filtered_indices,
-        top_k=100
-    )
-
-    # STAGE 3: Re-ranking
-    top_ranked_df = recommendation_engine.rerank_candidates(
-        top_100_df,
-        top_100_semantic_scores,
-        top_100_tfidf_scores,
-        filters_for_search,
-        top_k=100
-    )
-
-    # apply diversity filter to select up to 5 recommendations
-    final_recommendations = recommendation_engine.apply_diversity_filter(top_ranked_df, top_k=5)
-
-    # fill remaining slots from global recommendations if the list is incomplete (< 5)
-    if len(final_recommendations) < 5:
-        global_indices = list(range(len(df_sneakers)))
-        global_100_df, global_100_semantic, global_100_tfidf = recommendation_engine.search_semantic(
-            query_embedding=query_vector,
-            query_tfidf=query_tfidf,
+    # FALLBACK LOGIC: If fewer than 10 products are found
+    if len(final_recommendations) < 10 and len(final_recommendations) > 0:
+        highest_ranked = final_recommendations.iloc[0]
+        highest_ranked_id = highest_ranked["Product ID"]
+        
+        exclude_ids = final_recommendations["Product ID"].tolist()
+        similar_fill_df = recommendation_engine.find_similar_products(
+            target_product_id=highest_ranked_id,
+            df=df_sneakers,
             embeddings_identity=embeddings_identity,
             embeddings_description=embeddings_description,
-            embeddings_combined=embeddings_combined,
-            tfidf_matrix=tfidf_matrix,
-            df=df_sneakers,
-            filtered_indices=global_indices,
-            top_k=100
+            exclude_ids=exclude_ids,
+            top_k=10 - len(final_recommendations)
         )
-        global_ranked_df = recommendation_engine.rerank_candidates(
-            global_100_df,
-            global_100_semantic,
-            global_100_tfidf,
-            {}, # empty filters for global match
-            top_k=100
-        )
-        diverse_global = recommendation_engine.apply_diversity_filter(global_ranked_df, top_k=100)
-        
-        # append global recommendations without returning duplicates
-        existing_ids = set(final_recommendations["Product ID"].tolist())
-        existing_base_models = set([recommendation_engine.normalize_base_model(m) for m in final_recommendations["Model"].tolist()])
-        
-        fill_rows = []
-        for _, row in diverse_global.iterrows():
-            prod_id = row["Product ID"]
-            base_model = recommendation_engine.normalize_base_model(row["Model"])
-            if prod_id not in existing_ids and base_model not in existing_base_models:
-                fill_rows.append(row)
-                existing_ids.add(prod_id)
-                existing_base_models.add(base_model)
-                if len(final_recommendations) + len(fill_rows) >= 5:
-                    break
-                    
-        if fill_rows:
-            fill_df = pd.DataFrame(fill_rows)
-            final_recommendations = pd.concat([final_recommendations, fill_df], ignore_index=True)
+        if len(similar_fill_df) > 0:
+            final_recommendations = pd.concat([final_recommendations, similar_fill_df], ignore_index=True)
 
-    # STAGE 4: Discover Similar Products
+    # Global fallback if still fewer than 10 products
+    if len(final_recommendations) < 10:
+        exclude_ids = final_recommendations["Product ID"].tolist() if len(final_recommendations) > 0 else []
+        global_fill_df = df_sneakers[~df_sneakers["Product ID"].isin(exclude_ids)].head(10 - len(final_recommendations))
+        if len(global_fill_df) > 0:
+            final_recommendations = pd.concat([final_recommendations, global_fill_df], ignore_index=True)
+
+    # STAGE 4: Discover Similar Products (Top 20 similar products for the selected item)
     similar_df = pd.DataFrame()
     if len(final_recommendations) > 0:
-        number_one_id = final_recommendations.iloc[0]["Product ID"]
+        target_id = final_recommendations.iloc[0]["Product ID"]
         exclude_ids = final_recommendations["Product ID"].tolist()
         
-        # restrict similar products target list to match gender of active sneaker
-        number_one_gender = final_recommendations.iloc[0]["Gender"]
-        
         similar_df = recommendation_engine.find_similar_products(
-            target_product_id=number_one_id,
+            target_product_id=target_id,
             df=df_sneakers,
             embeddings_identity=embeddings_identity,
             embeddings_description=embeddings_description,
-            embeddings_combined=embeddings_combined,
             exclude_ids=exclude_ids,
-            target_gender=number_one_gender,
             top_k=20
         )
 
-    # format data payload objects
     recommendations_payload = format_sneaker_payload(final_recommendations)
     similar_products_payload = format_sneaker_payload(similar_df)
 
-    # return both lists in a single JSON response
     return {
         "recommendations": recommendations_payload,
         "similar_products": similar_products_payload
@@ -390,15 +349,39 @@ def get_filter_options():
     if df_sneakers is None:
         raise HTTPException(status_code=500, detail="Sneaker dataset is not loaded.")
 
-    # fetch unique values from dataframe columns
     brands = sorted(df_sneakers["Brand"].dropna().unique().tolist())
     types = sorted(df_sneakers["Type"].dropna().unique().tolist())
     materials = sorted(df_sneakers["Material"].dropna().unique().tolist())
-    colors = sorted(df_sneakers["Color"].dropna().unique().tolist())
+    # Primary Color should be treated as the color filter. Do not use Colorway for filtering.
+    colors = sorted(df_sneakers["Primary Color"].dropna().unique().tolist())
 
     return {
         "brands": brands,
         "types": types,
         "materials": materials,
         "colors": colors
+    }
+
+@app.get("/api/similar/{product_id}")
+def get_similar_products(product_id: str):
+    """
+    Get similar products for a specific sneaker by its product ID.
+    Returns 20 similar products.
+    """
+    global df_sneakers, embeddings_identity, embeddings_description
+    
+    if df_sneakers is None or embeddings_identity is None or embeddings_description is None:
+        raise HTTPException(status_code=500, detail="Recommendation engine artifacts not loaded.")
+
+    similar_df = recommendation_engine.find_similar_products(
+        target_product_id=product_id,
+        df=df_sneakers,
+        embeddings_identity=embeddings_identity,
+        embeddings_description=embeddings_description,
+        exclude_ids=[product_id],
+        top_k=20
+    )
+    
+    return {
+        "similar_products": format_sneaker_payload(similar_df)
     }

@@ -9,7 +9,7 @@ SneakX/
 │   │   ├── Updated_Sneakers.csv         # Raw CSV shoe data
 │   │   ├── processed_dataset.parquet   # Pandas processed dataset
 │   │   ├── embeddings_*.npy             # Vector embeddings for semantic search
-│   │   └── tfidf_*.pkl                 # TF-IDF vectors
+│   │   └── bm25_index.pkl              # BM25 index
 │   ├── engine/
 │   │   ├── recommendation_engine.py    # Similarity and diversity calculations
 │   │   └── semantic_search.py          # Embedding generation helper
