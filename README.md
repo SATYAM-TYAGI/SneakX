@@ -88,7 +88,7 @@ Type these into the search bar:
 ![HomePage](/screenshots/homepage.png)
 
 ### Product Details Page
-![ProductDetails](/screenshots/productdetail.png)
+![ProductDetails](/screenshots/productdetails.png)
 
 ---
 
@@ -99,3 +99,13 @@ The Original Dataset was obtained from kaggle. Link: [Original Dataset](https://
 
 ### Data Collection API
 I populated the dataset using data collected from KicksDB API. Link: [KicksDB API](https://kicksdb.com/)
+
+---
+
+## Testing
+
+### Windows
+The Project has been tested for plug and play capability on microsoft windows OS and worked as expected.
+
+### MAC
+The Project has been tested for plug and play capability on MAC OS and worked as expected.
