@@ -10,12 +10,12 @@ Here is a simple look at how data flows through the application:
 
 ```mermaid
 graph TD
-    subgraph Frontend Container (React)
+    subgraph Frontend["Frontend Container (React)"]
         UI[App.jsx & UI Components]
         API_Call[services/api.js]
     end
 
-    subgraph Backend Container (FastAPI)
+    subgraph Backend["Backend Container (FastAPI)"]
         API[main.py API Gateway]
         Engine[engine/recommendation_engine.py]
         Data[engine/semantic_search.py]
